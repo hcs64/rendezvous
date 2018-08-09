@@ -1,0 +1,10 @@
+[package]
+name = "rendezvous"
+version = "0.0.1"
+authors = ["Adam Gashlin"]
+
+[dependencies]
+rand = "0.5"
+futures = "0.1"
+futures-timer = "0.1"
+hyper = "0.12"
