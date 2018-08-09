@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+  <body>
+    <textarea cols=20 rows=10 id='content'></textarea>
+    <br>
+    <button id='submit-button'>Submit</button>
+    <br>
+    <div id='link-div'></div>
+    <br>
+    <textarea cols=20 rows=5 id='log'></textarea>
+    <script>
+'use strict';
+
+let content = document.getElementById('content');
+let submit = document.getElementById('submit-button');
+let log = document.getElementById('log');
+let linkdiv = document.getElementById('link-div');
+
+let reportStatus = function (newStatus) {
+  log.value = newStatus + '\n' + log.value;
+};
+
+content.value = '';
+log.value = '';
+
+submit.addEventListener('click', function () {
+  let data = content.value;
+  let xhr = new XMLHttpRequest();
+  let token = '';
+  xhr.addEventListener('load', function () {
+    // TODO: validate token
+    token = this.responseText;
+
+    reportStatus('Got token ' + token);
+    let link = document.createElement('a');
+    link.href = 'http://localhost:3000/download?' + token;
+    link.target = '_blank';
+    link.innerText = token;
+    while (linkdiv.firstChild) {
+      linkdiv.removeChild(linkdiv.firstChild);
+    }
+    linkdiv.appendChild(link);
+
+    let xhr = new XMLHttpRequest();
+    xhr.addEventListener('load', function () {
+      reportStatus('On it\'s way! ' + xhr.responseText);
+    });
+    xhr.addEventListener('error', function () {
+      reportStatus('XHR error');
+    });
+    xhr.open('POST', '/upload?' + token, true);
+    xhr.send(content.value);
+
+    reportStatus('Uploading...');
+  });
+  xhr.addEventListener('error', function () {
+    reportStatus('XHR error');
+  });
+  xhr.open('POST', '/requestToken', true);
+  xhr.send();
+  reportStatus('Requesting token');
+});
+    </script>
+  </body>
+</html>
