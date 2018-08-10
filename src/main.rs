@@ -1,21 +1,21 @@
-extern crate hyper;
 extern crate futures;
+extern crate hyper;
 extern crate rand;
 extern crate url;
 
-use std::collections::{HashMap, VecDeque};
+use rand::prelude::*;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::iter;
 use std::sync::{Arc, Mutex};
-use rand::prelude::*;
 //use rand::distributions::{Distribution, Uniform};
 use futures::{future, sync};
 use futures::{Async, Poll};
-use hyper::{Body, Chunk, HeaderMap, Method, Request, Response, Server, StatusCode};
 use hyper::body::Payload;
 use hyper::header::{self, HeaderValue};
 use hyper::rt::{Future, Stream};
 use hyper::service::service_fn;
+use hyper::{Body, Chunk, HeaderMap, Method, Request, Response, Server, StatusCode};
 
 // TODO: timeout
 const _TIMEOUT_SECS: u64 = 5; //5 * 60;
@@ -29,8 +29,12 @@ static FAVICON: &'static [u8] = include_bytes!("favicon.ico");
 static UPLOADER_HTML: &'static str = include_str!("uploader.html");
 static CLIENT_JS: &'static str = include_str!("client.js");
 
-static BASE58: &'static [char] =
-&['1','2','3','4','5','6','7','8','9','A','B','C','D','E','F','G','H','J','K','L','M','N','P','Q','R','S','T','U','V','W','X','Y','Z','a','b','c','d','e','f','g','h','i','j','k','m','n','o','p','q','r','s','t','u','v','w','x','y','z'];
+static BASE58: &'static [char] = &[
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K',
+    'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e',
+    'f', 'g', 'h', 'i', 'j', 'k', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y',
+    'z',
+];
 
 #[derive(Debug)]
 enum Rendezvous {
@@ -72,7 +76,7 @@ impl Payload for Rendezvous {
 
 #[derive(Debug)]
 struct Forwarder {
-    inner: Option<(Body, sync::oneshot::Sender<Response<Rendezvous>>)>
+    inner: Option<(Body, sync::oneshot::Sender<Response<Rendezvous>>)>,
 }
 
 impl Payload for Forwarder {
@@ -82,12 +86,12 @@ impl Payload for Forwarder {
     fn poll_data(&mut self) -> Poll<Option<Chunk>, hyper::Error> {
         if let Some((ref mut body, _)) = self.inner {
             match body.poll() {
-                Ok(Async::Ready(None)) => {},
-                x => return x
+                Ok(Async::Ready(None)) => {}
+                x => return x,
             }
         } else {
             // fused!
-            return Ok(Async::Ready(None))
+            return Ok(Async::Ready(None));
         }
 
         let (_, complete) = self.inner.take().unwrap();
@@ -95,7 +99,7 @@ impl Payload for Forwarder {
             Response::builder()
                 .header(header::CONTENT_TYPE, TYPE_TEXT)
                 .body(Bod(Body::from("Upload success!")))
-                .unwrap()
+                .unwrap(),
         ) {
             // not really much to do if we can't talk back to the uploader
         }
@@ -124,74 +128,61 @@ impl Payload for Forwarder {
     */
 }
 
-type BoxFut = Box<Future<Item=Response<Rendezvous>, Error=hyper::Error> + Send>;
+type BoxFut = Box<Future<Item = Response<Rendezvous>, Error = hyper::Error> + Send>;
 type Endpoint = (String, VecDeque<Forwarder>);
 type InFlightMap = Arc<Mutex<HashMap<String, Endpoint>>>;
 
 macro_rules! std_response {
-    ( $t:expr, $s:expr ) => {
-        {
-            let mut response = Response::builder();
-            response.header(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static($t));
-            Box::new(future::ok(response.body(Bod(Body::from($s))).unwrap()))
-        }
-    }
+    ($t:expr, $s:expr) => {{
+        let mut response = Response::builder();
+        response.header(header::CONTENT_TYPE, HeaderValue::from_static($t));
+        Box::new(future::ok(response.body(Bod(Body::from($s))).unwrap()))
+    }};
 }
 
 macro_rules! status_response {
-    ( $status:expr, $t:expr, $s:expr ) => {
-        {
-            let mut response = Response::builder();
-            response.header(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static($t));
-            response.status($status);
-            Box::new(future::ok(response.body(Bod(Body::from($s))).unwrap()))
-        }
-    }
+    ($status:expr, $t:expr, $s:expr) => {{
+        let mut response = Response::builder();
+        response.header(header::CONTENT_TYPE, HeaderValue::from_static($t));
+        response.status($status);
+        Box::new(future::ok(response.body(Bod(Body::from($s))).unwrap()))
+    }};
 }
 
-fn service_home() -> BoxFut
-{
+fn service_home() -> BoxFut {
     std_response!(TYPE_HTML, UPLOADER_HTML)
 }
 
-fn service_favicon() -> BoxFut
-{
+fn service_favicon() -> BoxFut {
     std_response!("image/x-icon", FAVICON)
 }
 
-fn service_js() -> BoxFut
-{
+fn service_js() -> BoxFut {
     std_response!("application/javascript; charset=utf-8", CLIENT_JS)
 }
 
 fn generate_token_pair() -> (String, String) {
     let gen = || {
         let mut rng = thread_rng();
-        iter::repeat_with(|| rng.choose(BASE58)
-                                 .unwrap())
-                                 .take(TOKEN_LENGTH)
-                                 .collect::<String>()
+        iter::repeat_with(|| rng.choose(BASE58).unwrap())
+            .take(TOKEN_LENGTH)
+            .collect::<String>()
     };
     (gen(), gen())
 }
 
-fn service_request_token(in_flight: &InFlightMap) -> BoxFut
-{
+fn service_request_token(in_flight: &InFlightMap) -> BoxFut {
     let (token, secret) = generate_token_pair();
     let combo = token.clone() + "," + &secret;
-    in_flight.lock()
-             .unwrap()
-             .insert(token, (secret, VecDeque::new()));
+    in_flight
+        .lock()
+        .unwrap()
+        .insert(token, (secret, VecDeque::new()));
 
     std_response!(TYPE_TEXT, combo)
 }
 
-fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFut
-{
+fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFut {
     let mut token = None;
     let mut secret = None;
 
@@ -208,12 +199,10 @@ fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFut
     }
 
     if token.is_none() {
-        return status_response!(StatusCode::NOT_FOUND, TYPE_TEXT,
-                                "Missing token");
+        return status_response!(StatusCode::NOT_FOUND, TYPE_TEXT, "Missing token");
     }
     if secret.is_none() {
-        return status_response!(StatusCode::FORBIDDEN, TYPE_TEXT,
-                                "Missing secret");
+        return status_response!(StatusCode::FORBIDDEN, TYPE_TEXT, "Missing secret");
     }
     let token = token.unwrap().to_string();
     let secret = secret.unwrap();
@@ -228,34 +217,32 @@ fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFut
                     inner: Some((body, complete)),
                 });
             } else {
-                return status_response!(StatusCode::FORBIDDEN, TYPE_TEXT,
-                                        "Bad secret");
+                return status_response!(StatusCode::FORBIDDEN, TYPE_TEXT, "Bad secret");
             }
-        },
+        }
         Entry::Vacant(_) => {
-            return status_response!(StatusCode::NOT_FOUND, TYPE_TEXT,
-                                 "Unknown token");
-        },
+            return status_response!(StatusCode::NOT_FOUND, TYPE_TEXT, "Unknown token");
+        }
     };
 
-    Box::new(completion.or_else(|_|
-        future::ok(
-            Response::builder()
-                .header(header::CONTENT_TYPE, TYPE_TEXT)
-                .body(Bod(Body::from("BAD NEWS")))
-                .unwrap())
+    Box::new(
+        completion
+            .or_else(|_| {
+                future::ok(
+                    Response::builder()
+                        .header(header::CONTENT_TYPE, TYPE_TEXT)
+                        .body(Bod(Body::from("BAD NEWS")))
+                        .unwrap(),
+                )
+            })
+            .map_err(|_: sync::oneshot::Canceled| -> hyper::Error { unreachable!() }),
     )
-    .map_err(|_: sync::oneshot::Canceled| -> hyper::Error {
-        unreachable!()
-    }))
 }
 
-fn service_download(req: Request<Body>, in_flight: &InFlightMap) -> BoxFut
-{
+fn service_download(req: Request<Body>, in_flight: &InFlightMap) -> BoxFut {
     let query = req.uri().query();
     if query.is_none() {
-        return status_response!(StatusCode::NOT_FOUND, TYPE_HTML,
-                                r"<b>Token missing</b>");
+        return status_response!(StatusCode::NOT_FOUND, TYPE_HTML, r"<b>Token missing</b>");
     }
 
     let token = String::from(query.unwrap());
@@ -264,37 +251,40 @@ fn service_download(req: Request<Body>, in_flight: &InFlightMap) -> BoxFut
             match entry.get_mut().1.pop_front() {
                 // TODO need to check if a forwarder is closed and skip
                 Some(forwarder) => Box::new(future::ok(
-                    Response::builder()
-                        .body(Fwd(forwarder))
-                        .unwrap())),
-                None => status_response!(StatusCode::SERVICE_UNAVAILABLE,
-                                         TYPE_HTML,
-                                         "<b>No uploader available</b>"),
+                    Response::builder().body(Fwd(forwarder)).unwrap(),
+                )),
+                None => status_response!(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    TYPE_HTML,
+                    "<b>No uploader available</b>"
+                ),
             }
-        },
-        Entry::Vacant(_) => status_response!(StatusCode::NOT_FOUND, TYPE_HTML,
-                                             "<b>Unknown token</b>"),
+        }
+        Entry::Vacant(_) => {
+            status_response!(StatusCode::NOT_FOUND, TYPE_HTML, "<b>Unknown token</b>")
+        }
     }
 }
 
-fn service_not_found() -> BoxFut
-{
+fn service_not_found() -> BoxFut {
     let mut response = Response::builder();
 
     response.header(header::CONTENT_TYPE, HeaderValue::from_static(TYPE_HTML));
     response.status(StatusCode::NOT_FOUND);
 
-    Box::new(future::ok(response.body(Bod(Body::from(r"<b>404 Not Found</b>"))).unwrap()))
+    Box::new(future::ok(
+        response
+            .body(Bod(Body::from(r"<b>404 Not Found</b>")))
+            .unwrap(),
+    ))
 }
 
-fn service_dump(in_flight: &InFlightMap) -> BoxFut
-{
+fn service_dump(in_flight: &InFlightMap) -> BoxFut {
     println!("{:?}", in_flight);
     service_not_found()
 }
 
-fn service(in_flight: InFlightMap) -> impl Fn(Request<Body>) -> BoxFut
-{
+fn service(in_flight: InFlightMap) -> impl Fn(Request<Body>) -> BoxFut {
     move |req| match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => service_home(),
         (&Method::GET, "/favicon.ico") => service_favicon(),
