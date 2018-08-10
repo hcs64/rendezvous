@@ -1,65 +1,36 @@
 <!doctype html>
 <html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rendezvous paste bin</title>
+    <style>
+body {
+  background-color: #ccf;
+}
+textarea#content {
+  width: 98%;
+}
+input#link {
+  font-family: monospace;
+}
+    </style>
+  </head>
   <body>
-    <textarea cols=20 rows=10 id='content'></textarea>
-    <br>
-    <button id='submit-button'>Submit</button>
-    <br>
-    <div id='link-div'></div>
-    <br>
-    <textarea cols=20 rows=5 id='log'></textarea>
-    <script>
-'use strict';
+    <div>
+      <textarea cols=80 rows=20 id='content'
+       placeholder="Paste here!"></textarea>
+    </div>
+    <div>
+      <button id='submit-button'>Upload</button>
+      <button hidden id='abort-button'>Abort</button>
+    </div>
+    <div hidden id='status-div'>
+      <label for='link'>Link: </label><input type='text' id='link' readonly>
+      <div>Uploads: <span id='uploadmeter'>0</span></div>
+      Log:<br>
+      <textarea cols=40 rows=5 id='log' readonly></textarea>
+    </div>
 
-let content = document.getElementById('content');
-let submit = document.getElementById('submit-button');
-let log = document.getElementById('log');
-let linkdiv = document.getElementById('link-div');
-
-let reportStatus = function (newStatus) {
-  log.value = newStatus + '\n' + log.value;
-};
-
-content.value = '';
-log.value = '';
-
-submit.addEventListener('click', function () {
-  let data = content.value;
-  let xhr = new XMLHttpRequest();
-  let token = '';
-  xhr.addEventListener('load', function () {
-    // TODO: validate token
-    token = this.responseText;
-
-    reportStatus('Got token ' + token);
-    let link = document.createElement('a');
-    link.href = 'http://localhost:3000/download?' + token;
-    link.target = '_blank';
-    link.innerText = token;
-    while (linkdiv.firstChild) {
-      linkdiv.removeChild(linkdiv.firstChild);
-    }
-    linkdiv.appendChild(link);
-
-    let xhr = new XMLHttpRequest();
-    xhr.addEventListener('load', function () {
-      reportStatus('On it\'s way! ' + xhr.responseText);
-    });
-    xhr.addEventListener('error', function () {
-      reportStatus('XHR error');
-    });
-    xhr.open('POST', '/upload?' + token, true);
-    xhr.send(content.value);
-
-    reportStatus('Uploading...');
-  });
-  xhr.addEventListener('error', function () {
-    reportStatus('XHR error');
-  });
-  xhr.open('POST', '/requestToken', true);
-  xhr.send();
-  reportStatus('Requesting token');
-});
-    </script>
+    <script src="client.js"></script>
   </body>
 </html>
