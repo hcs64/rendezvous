@@ -428,11 +428,9 @@ fn service_not_found() -> BoxFutRes {
     )))
 }
 
-fn service_dump(in_flight: &InFlightMap) -> BoxFutRes {
-    #![cfg(debug_assertions)]
-    {
-        println!("{:?}", in_flight);
-    }
+fn service_dump(_in_flight: &InFlightMap) -> BoxFutRes {
+    #[cfg(debug_assertions)]
+    println!("{:?}", _in_flight);
     service_not_found()
 }
 
