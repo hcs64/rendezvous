@@ -1,14 +1,14 @@
 'use strict';
 
-let content = document.getElementById('content');
-let submit = document.getElementById('submit-button');
-let submitcancel = document.getElementById('cancel-button');
-let log = document.getElementById('log');
-let statusdiv = document.getElementById('status-div');
-let link = document.getElementById('link');
-let uploadmeter = document.getElementById('uploadmeter');
+var content = document.getElementById('content');
+var submit = document.getElementById('submit-button');
+var submitcancel = document.getElementById('cancel-button');
+var log = document.getElementById('log');
+var statusdiv = document.getElementById('status-div');
+var link = document.getElementById('link');
+var uploadmeter = document.getElementById('uploadmeter');
 
-let reportStatus = function (newStatus) {
+var reportStatus = function (newStatus) {
   log.value += newStatus + '\n';
   log.scrollTop = log.scrollHeight;
 };
@@ -51,7 +51,7 @@ function utf8ByteLength(str) {
 function requestId(value, loadedCallback, errorCallback) {
   reportStatus('Requesting upload id');
 
-  let xhr = new XMLHttpRequest();
+  var xhr = new XMLHttpRequest();
   xhr.open('POST', '/1/id/request?length=' + utf8ByteLength(value), true);
   addEventHandlers(xhr, loadedCallback, errorCallback);
   xhr.send();
@@ -62,7 +62,7 @@ function requestId(value, loadedCallback, errorCallback) {
 function cancelId(id, secret, loadedCallback, errorCallback) {
   reportStatus('Cancelling');
 
-  let xhr = new XMLHttpRequest();
+  var xhr = new XMLHttpRequest();
   xhr.open('POST', '/1/id/retire?id=' + id + '&secret=' + secret);
   xhr.send();
   addEventHandlers(xhr, loadedCallback, errorCallback);
@@ -73,7 +73,7 @@ function cancelId(id, secret, loadedCallback, errorCallback) {
 function upload(value, id, secret, loadedCallback, errorCallback) {
   reportStatus('Starting upload');
 
-  let xhr = new XMLHttpRequest();
+  var xhr = new XMLHttpRequest();
   xhr.open('POST', '/1/file/upload?id=' + id + '&secret=' + secret);
   xhr.setRequestHeader("Content-Type", "text/plain; charset=utf-8");
   addEventHandlers(xhr, loadedCallback, errorCallback);
@@ -92,12 +92,12 @@ function reset() {
 }
 
 submit.onclick = function onclickSubmit () {
-  let id = '';
-  let secret = '';
-  let uploads = 0;
-  let errors = 0;
-  let value = content.value;
-  let curxhr = null;
+  var id = '';
+  var secret = '';
+  var uploads = 0;
+  var errors = 0;
+  var value = content.value;
+  var curxhr = null;
   link.value = '';
   uploadmeter.innerText = '0';
 
@@ -161,13 +161,13 @@ submit.onclick = function onclickSubmit () {
   requestId(
     value,
     function requestIdLoaded (xhr) {
-      let parts = xhr.responseText.split(',');
+      var url = window.location;
+      var parts = xhr.responseText.split(',');
       id = parts[0];
       secret = parts[1];
       uploads = 0;
       uploadmeter.innerText = '0';
 
-      let url = window.location;
       link.value = url.protocol + '//' + url.host + '/1/file/download?id=' + id;
       link.size = '' + (link.value.length);
 
