@@ -89,6 +89,11 @@ function reset() {
   submit.innerText = 'Upload';
   submitcancel.hidden = true;
   delete submitcancel.onclick;
+  window.removeEventListener('beforeunload', unloadWarning);
+}
+
+function unloadWarning (e) {
+  e.returnValue = "If you leave this page your paste will be unavailable!";
 }
 
 submit.onclick = function onclickSubmit () {
@@ -170,6 +175,8 @@ submit.onclick = function onclickSubmit () {
 
       link.value = url.protocol + '//' + url.host + '/1/file/download?id=' + id;
       link.size = '' + (link.value.length);
+
+      window.addEventListener('beforeunload', unloadWarning);
 
       reportStatus('Got id');
       curxhr = upload(value, id, secret, uploadSuccess, uploadError);
