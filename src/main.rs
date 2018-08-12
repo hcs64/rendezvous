@@ -1,4 +1,5 @@
 extern crate futures;
+extern crate futures_timer;
 extern crate hyper;
 extern crate rand;
 extern crate url;
@@ -8,9 +9,10 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::iter;
 use std::sync::{Arc, Mutex};
-//use rand::distributions::{Distribution, Uniform};
+use std::time::Duration;
 use futures::{future, sync};
 use futures::{Async, Poll};
+use futures_timer::Delay;
 use hyper::body::Payload;
 use hyper::header::{self, HeaderValue};
 use hyper::rt::{Future, Stream};
@@ -19,6 +21,8 @@ use hyper::{Body, Chunk, HeaderMap, Method, Request, Response, Server, StatusCod
 
 // TODO: timeout
 const _TIMEOUT_SECS: u64 = 5; //5 * 60;
+const RETRY_MS: u64 = 200;
+const MAX_RETRIES: u64 = 9;
 
 const TOKEN_LENGTH: usize = 12;
 const MAX_CONTENT_LENGTH: u64 = 1024 * 1024;
@@ -38,14 +42,14 @@ static BASE58: &'static [char] = &[
 ];
 
 #[cfg_attr(debug_assertions, derive(Debug))]
-enum Rendezvous {
+enum RendezvousPayload {
     Bod(Body),
     Fwd(Forwarder),
 }
 
-use Rendezvous::{Bod, Fwd};
+use RendezvousPayload::{Bod, Fwd};
 
-impl Payload for Rendezvous {
+impl Payload for RendezvousPayload {
     type Data = Chunk;
     type Error = hyper::Error;
 
@@ -79,7 +83,7 @@ impl Payload for Rendezvous {
 struct Forwarder {
     length: u64,
     bytes_sent: u64,
-    uploader: Option<(Body, sync::oneshot::Sender<Response<Rendezvous>>)>,
+    uploader: Option<(Body, sync::oneshot::Sender<Response<RendezvousPayload>>)>,
 }
 
 impl Forwarder {
@@ -159,7 +163,10 @@ struct Paste {
     uploaders: VecDeque<Forwarder>,
 }
 
-type BoxFut = Box<Future<Item = Response<Rendezvous>, Error = hyper::Error> + Send>;
+type BoxFut = Box<Future<Item = Response<RendezvousPayload>, Error = hyper::Error> + Send>;
+// We usually don't care about Ok vs Err here, Err just lets us exit early with ?
+type BoxFutRes = Result<BoxFut, BoxFut>;
+
 type InFlightMap = Arc<Mutex<HashMap<String, Paste>>>;
 
 macro_rules! std_response {
@@ -178,8 +185,6 @@ macro_rules! status_response {
         Box::new(future::ok(response.body(Bod(Body::from($s))).unwrap()))
     }};
 }
-
-type BoxFutRes = Result<BoxFut, BoxFut>;
 
 fn service_home() -> BoxFutRes {
     Ok(std_response!(TYPE_HTML, UPLOADER_HTML))
@@ -458,29 +463,55 @@ fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFutRes {
 fn service_download(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
     let id = query_id(uri, true)?;
 
-    match in_flight.lock().unwrap().entry(id) {
-        Entry::Occupied(mut entry) => {
-            match entry.get_mut().uploaders.pop_front() {
-                // TODO need to check if a forwarder is closed and skip
-                Some(forwarder) => Ok(Box::new(future::ok(
-                    Response::builder()
-                        .header(header::CONTENT_TYPE, TYPE_TEXT)
-                        .body(Fwd(forwarder))
-                        .unwrap(),
-                ))),
-                None => Err(status_response!(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    TYPE_HTML,
-                    "<b>No uploader available</b>"
-                )),
+    // TODO refactor for less ugliness
+    fn download(id: String, mut retries: u64, in_flight: InFlightMap) -> BoxFut {
+        match in_flight.lock().unwrap().entry(id.clone()) {
+            Entry::Occupied(mut entry) => {
+                match entry.get_mut().uploaders.pop_front() {
+                    Some(forwarder) => {
+                        if forwarder.uploader.is_some() &&
+                            !forwarder.uploader.as_ref().unwrap().1.is_canceled() {
+                                return Box::new(future::ok(
+                                            Response::builder()
+                                            .header(header::CONTENT_TYPE, TYPE_TEXT)
+                                            .body(Fwd(forwarder))
+                                            .unwrap()))
+                            } else {
+                                // fall through to retry
+                            }
+                    }
+                    None => {
+                        // fall through to retry
+                    }
+                }
             }
-        }
-        Entry::Vacant(_) => Err(status_response!(
-            StatusCode::NOT_FOUND,
-            TYPE_HTML,
-            "<b>Unknown id</b>"
-        )),
-    }
+            Entry::Vacant(_) => {
+                return status_response!(
+                        StatusCode::NOT_FOUND,
+                        TYPE_HTML,
+                        "<b>Unknown id</b>"
+                        );
+            }
+        };
+
+        Box::new(Delay::new(Duration::from_millis(RETRY_MS))
+            .or_else(|_| future::ok(())) // TODO probably should not retry on timer errors?
+            .and_then(move |_| {
+                if retries > 0 {
+                    retries -= 1;
+                    download(id, retries, in_flight)
+                } else {
+                    status_response!(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            TYPE_HTML,
+                            "<b>No uploader currently available</b>"
+                            )
+                }
+            }
+            ))
+    };
+
+    Ok(download(id, MAX_RETRIES, in_flight.clone()))
 }
 
 fn service_not_found() -> BoxFutRes {
