@@ -3,6 +3,12 @@ extern crate futures_timer;
 extern crate hyper;
 extern crate rand;
 extern crate url;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate toml;
 
 use futures::{future, sync};
 use futures::{Async, Poll};
@@ -15,17 +21,77 @@ use hyper::{Body, Chunk, HeaderMap, Method, Request, Response, Server, StatusCod
 use rand::prelude::*;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
+use std::env;
+use std::ffi::OsString;
+use std::fs::File;
+use std::io::Read;
 use std::iter;
+use std::process;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const TIMEOUT_SECS: u64 = 60 * 60;
-const TIMEOUT_SCAN_SECS: u64 = 60;
-const RETRY_MS: u64 = 200;
-const MAX_RETRIES: u64 = 9;
+#[derive(Deserialize)]
+struct Config {
+    #[serde(default = "default_bind")]
+    bind: String,
 
-const TOKEN_LENGTH: usize = 12;
-const MAX_CONTENT_LENGTH: u64 = 1024 * 1024;
+    #[serde(default = "default_timeout_secs")]
+    timeout_secs: u64,
+
+    #[serde(default = "default_timeout_scan_interval_secs")]
+    timeout_scan_interval_secs: u64,
+
+    #[serde(default = "default_download_retry_ms")]
+    download_retry_ms: u64,
+
+    #[serde(default = "default_download_max_retries")]
+    download_max_retries: u64,
+
+    #[serde(default = "default_token_length")]
+    token_length: usize,
+
+    #[serde(default = "default_max_content_length")]
+    max_content_length: u64,
+}
+
+fn default_bind() -> String { String::from("127.0.0.1:3000") }
+fn default_timeout_secs() -> u64 { 60 * 60 }
+fn default_timeout_scan_interval_secs() -> u64 { 60 }
+fn default_download_retry_ms() -> u64 { 200 }
+fn default_download_max_retries() -> u64 { 9 }
+fn default_token_length() -> usize { 10 }
+fn default_max_content_length() -> u64 { 1024 * 1024 }
+
+lazy_static! {
+    static ref CONFIG: Arc<Config> = Arc::new({
+        let mut config_string = String::new();
+        let args: Vec<OsString> = env::args_os().collect();
+        if args.len() >= 2 {
+            let mut config_file = match File::open(&args[1]) {
+                Err(e) => {
+                    eprintln!("Error opening configuration file: {}", e);
+                    process::exit(1);
+                }
+                Ok(file) => file
+            };
+
+            match config_file.read_to_string(&mut config_string) {
+                Err(e) => {
+                    eprintln!("Error reading configuration file: {}", e);
+                    process::exit(1);
+                }
+                _ => {}
+            };
+        }
+        match toml::from_str(&config_string) {
+            Err(e) => {
+                eprintln!("Error parsing configuration file: {}", e);
+                process::exit(1);
+            }
+            Ok(c) => c
+        }
+    });
+}
 
 static TYPE_TEXT: &'static str = "text/plain; charset=utf-8";
 static TYPE_HTML: &'static str = "text/html; charset=utf-8";
@@ -206,7 +272,7 @@ fn generate_id_pair() -> (String, String) {
     let gen = || {
         let mut rng = thread_rng();
         iter::repeat_with(|| rng.choose(BASE58).unwrap())
-            .take(TOKEN_LENGTH)
+            .take(CONFIG.token_length)
             .collect::<String>()
     };
     (gen(), gen())
@@ -322,7 +388,7 @@ fn query_length(uri: &Uri, only: bool) -> Result<u64, BoxFut> {
             "\"length\" should be a decimal integer"
         ));
     };
-    if length > MAX_CONTENT_LENGTH {
+    if length > CONFIG.max_content_length {
         return Err(status_response!(
             StatusCode::BAD_REQUEST,
             TYPE_TEXT,
@@ -348,7 +414,8 @@ fn service_request_id(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
                 entry.insert(Paste {
                     secret,
                     length,
-                    expiration: Instant::now() + Duration::from_secs(TIMEOUT_SECS),
+                    expiration:
+                        Instant::now() + Duration::from_secs(CONFIG.timeout_secs),
                     uploaders: VecDeque::new(),
                 });
                 return Ok(std_response!(TYPE_TEXT, combo));
@@ -392,7 +459,7 @@ fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFutRes {
     let (id, secret) = query_id_and_secret(&header.uri, true)?;
 
     let length = if let Some(length) = body.content_length() {
-        if length > MAX_CONTENT_LENGTH {
+        if length > CONFIG.max_content_length {
             return Err(status_response!(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 TYPE_TEXT,
@@ -475,7 +542,8 @@ fn service_download(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
                         if forwarder.uploader.is_some()
                             && !forwarder.uploader.as_ref().unwrap().1.is_canceled()
                         {
-                            paste.expiration = Instant::now() + Duration::from_secs(TIMEOUT_SECS);
+                            paste.expiration =
+                                Instant::now() + Duration::from_secs(CONFIG.timeout_secs);
                             return Box::new(future::ok(
                                 Response::builder()
                                     .header(header::CONTENT_TYPE, TYPE_TEXT)
@@ -497,7 +565,7 @@ fn service_download(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
         };
 
         Box::new(
-            Delay::new(Duration::from_millis(RETRY_MS))
+            Delay::new(Duration::from_millis(CONFIG.download_retry_ms))
             .or_else(|_| future::ok(())) // TODO probably should not retry on timer errors?
             .and_then(move |_| {
                 if retries > 0 {
@@ -515,7 +583,7 @@ fn service_download(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
         )
     };
 
-    Ok(download(id, MAX_RETRIES, in_flight.clone()))
+    Ok(download(id, CONFIG.download_max_retries, in_flight.clone()))
 }
 
 fn service_not_found() -> BoxFutRes {
@@ -567,10 +635,9 @@ fn service(in_flight: InFlightMap) -> impl Fn(Request<Body>) -> BoxFut {
 
 fn schedule_timeout(in_flight: InFlightMap) {
     hyper::rt::spawn(
-        Delay::new(Duration::from_secs(TIMEOUT_SCAN_SECS / 2))
+        Delay::new(Duration::from_secs(CONFIG.timeout_scan_interval_secs))
             .or_else(|_| future::ok(()))
             .and_then(move |_| {
-                eprintln!("Delay expired!");
                 process_timeout(&in_flight);
                 schedule_timeout(in_flight);
                 future::ok(())
@@ -586,7 +653,9 @@ fn process_timeout(in_flight: &InFlightMap) {
 }
 
 fn main() {
-    let addr = ([0, 0, 0, 0], 3000).into();
+    lazy_static::initialize(&CONFIG);
+
+    let addr = CONFIG.bind.parse().unwrap();
 
     let in_flight = Arc::new(Mutex::new(HashMap::new()));
 

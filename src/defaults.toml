@@ -1,0 +1,21 @@
+# IP address and port to bind to
+bind = "127.0.0.1:3000"
+
+# How long a paste will live without being downloaded
+timeout_secs = 3600
+
+# How often to check for an expired paste
+timeout_scan_interval_secs = 60
+
+# Time to wait before re-checking for an available uploader
+download_retry_ms = 200
+
+# Number of times to re-check available uploaders
+download_max_retries = 9
+
+# Length of the "id" and "secret" tokens
+token_length = 10
+
+# Maximum size of an uploaded paste. You may need to adjust a setting in a
+# reverse proxy if you have one in front of the server.
+max_content_length = 1048576
