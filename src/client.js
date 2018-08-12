@@ -114,6 +114,7 @@ submit.onclick = function onclickSubmit () {
   submitcancel.hidden = false;
   submitcancel.onclick = function () {
     curxhr.abort();
+    chrxhr = null;
 
     cancelId(id, secret, function () {
       reportStatus('Id retired.');
@@ -125,6 +126,24 @@ submit.onclick = function onclickSubmit () {
         reportStatus('Cancel failed.');
       }
     });
+  };
+
+  function cancelWhenUnloaded () {
+    if (curxhr) {
+      // Here we attempt to automatically retire the transfer when navigating away from the page.
+      // We don't depend on this, but it will allow the server to pick up the change before its
+      // periodic timeout.
+      curxhr.abort();
+      curxhr = null;
+
+      if (navigator && navigator.sendBeacon) {
+        navigator.sendBeacon('/1/id/retire?id=' + id + '&secret=' + secret);
+      } else {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/1/id/retire?id=' + id + '&secret=' + secret, false);
+        xhr.send();
+      }
+    }
   };
 
   function uploadSuccess (xhr) {
@@ -177,6 +196,7 @@ submit.onclick = function onclickSubmit () {
       link.size = '' + (link.value.length);
 
       window.addEventListener('beforeunload', unloadWarning);
+      window.addEventListener('unload', cancelWhenUnloaded);
 
       reportStatus('Got id');
       curxhr = upload(value, id, secret, uploadSuccess, uploadError);
