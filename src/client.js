@@ -114,7 +114,7 @@ submit.onclick = function onclickSubmit () {
   submitcancel.hidden = false;
   submitcancel.onclick = function () {
     curxhr.abort();
-    chrxhr = null;
+    curxhr = null;
 
     cancelId(id, secret, function () {
       reportStatus('Id retired.');
