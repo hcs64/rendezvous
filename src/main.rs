@@ -4,12 +4,6 @@ extern crate hyper;
 extern crate rand;
 extern crate url;
 
-use rand::prelude::*;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
-use std::iter;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 use futures::{future, sync};
 use futures::{Async, Poll};
 use futures_timer::Delay;
@@ -18,6 +12,12 @@ use hyper::header::{self, HeaderValue};
 use hyper::rt::{Future, Stream};
 use hyper::service::service_fn;
 use hyper::{Body, Chunk, HeaderMap, Method, Request, Response, Server, StatusCode, Uri};
+use rand::prelude::*;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
+use std::iter;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const TIMEOUT_SECS: u64 = 60 * 60;
 const TIMEOUT_SCAN_SECS: u64 = 60;
@@ -472,18 +472,19 @@ fn service_download(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
                 let paste = entry.get_mut();
                 match paste.uploaders.pop_front() {
                     Some(forwarder) => {
-                        if forwarder.uploader.is_some() &&
-                            !forwarder.uploader.as_ref().unwrap().1.is_canceled() {
-                                paste.expiration =
-                                    Instant::now() + Duration::from_secs(TIMEOUT_SECS);
-                                return Box::new(future::ok(
-                                            Response::builder()
-                                            .header(header::CONTENT_TYPE, TYPE_TEXT)
-                                            .body(Fwd(forwarder))
-                                            .unwrap()))
-                            } else {
-                                // fall through to retry
-                            }
+                        if forwarder.uploader.is_some()
+                            && !forwarder.uploader.as_ref().unwrap().1.is_canceled()
+                        {
+                            paste.expiration = Instant::now() + Duration::from_secs(TIMEOUT_SECS);
+                            return Box::new(future::ok(
+                                Response::builder()
+                                    .header(header::CONTENT_TYPE, TYPE_TEXT)
+                                    .body(Fwd(forwarder))
+                                    .unwrap(),
+                            ));
+                        } else {
+                            // fall through to retry
+                        }
                     }
                     None => {
                         // fall through to retry
@@ -491,15 +492,12 @@ fn service_download(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
                 }
             }
             Entry::Vacant(_) => {
-                return status_response!(
-                        StatusCode::NOT_FOUND,
-                        TYPE_HTML,
-                        "<b>Unknown id</b>"
-                        );
+                return status_response!(StatusCode::NOT_FOUND, TYPE_HTML, "<b>Unknown id</b>");
             }
         };
 
-        Box::new(Delay::new(Duration::from_millis(RETRY_MS))
+        Box::new(
+            Delay::new(Duration::from_millis(RETRY_MS))
             .or_else(|_| future::ok(())) // TODO probably should not retry on timer errors?
             .and_then(move |_| {
                 if retries > 0 {
@@ -513,7 +511,8 @@ fn service_download(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
                             )
                 }
             }
-            ))
+            ),
+        )
     };
 
     Ok(download(id, MAX_RETRIES, in_flight.clone()))
@@ -567,14 +566,16 @@ fn service(in_flight: InFlightMap) -> impl Fn(Request<Body>) -> BoxFut {
 }
 
 fn schedule_timeout(in_flight: InFlightMap) {
-    hyper::rt::spawn(Delay::new(Duration::from_secs(TIMEOUT_SCAN_SECS / 2))
-                     .or_else(|_| future::ok(()))
-                     .and_then(move |_| {
-                         eprintln!("Delay expired!");
-                         process_timeout(&in_flight);
-                         schedule_timeout(in_flight);
-                         future::ok(())
-                     }));
+    hyper::rt::spawn(
+        Delay::new(Duration::from_secs(TIMEOUT_SCAN_SECS / 2))
+            .or_else(|_| future::ok(()))
+            .and_then(move |_| {
+                eprintln!("Delay expired!");
+                process_timeout(&in_flight);
+                schedule_timeout(in_flight);
+                future::ok(())
+            }),
+    );
 }
 
 fn process_timeout(in_flight: &InFlightMap) {
@@ -595,8 +596,7 @@ fn main() {
         .map_err(|e| eprintln!("server error: {}", e));
 
     let timeout_clone = in_flight.clone();
-    let timeout_kickoff = future::lazy(move || future::ok(
-        schedule_timeout(timeout_clone.clone())));
+    let timeout_kickoff = future::lazy(move || future::ok(schedule_timeout(timeout_clone.clone())));
 
     let server = Future::join(http_server, timeout_kickoff).map(|_| ());
 
