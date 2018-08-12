@@ -54,13 +54,27 @@ struct Config {
     max_content_length: u64,
 }
 
-fn default_bind() -> String { String::from("127.0.0.1:3000") }
-fn default_timeout_secs() -> u64 { 60 * 60 }
-fn default_timeout_scan_interval_secs() -> u64 { 60 }
-fn default_download_retry_ms() -> u64 { 200 }
-fn default_download_max_retries() -> u64 { 9 }
-fn default_token_length() -> usize { 10 }
-fn default_max_content_length() -> u64 { 1024 * 1024 }
+fn default_bind() -> String {
+    String::from("127.0.0.1:3000")
+}
+fn default_timeout_secs() -> u64 {
+    60 * 60
+}
+fn default_timeout_scan_interval_secs() -> u64 {
+    60
+}
+fn default_download_retry_ms() -> u64 {
+    200
+}
+fn default_download_max_retries() -> u64 {
+    9
+}
+fn default_token_length() -> usize {
+    10
+}
+fn default_max_content_length() -> u64 {
+    1024 * 1024
+}
 
 lazy_static! {
     static ref CONFIG: Arc<Config> = Arc::new({
@@ -72,7 +86,7 @@ lazy_static! {
                     eprintln!("Error opening configuration file: {}", e);
                     process::exit(1);
                 }
-                Ok(file) => file
+                Ok(file) => file,
             };
 
             match config_file.read_to_string(&mut config_string) {
@@ -88,7 +102,7 @@ lazy_static! {
                 eprintln!("Error parsing configuration file: {}", e);
                 process::exit(1);
             }
-            Ok(c) => c
+            Ok(c) => c,
         }
     });
 }
@@ -414,8 +428,7 @@ fn service_request_id(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
                 entry.insert(Paste {
                     secret,
                     length,
-                    expiration:
-                        Instant::now() + Duration::from_secs(CONFIG.timeout_secs),
+                    expiration: Instant::now() + Duration::from_secs(CONFIG.timeout_secs),
                     uploaders: VecDeque::new(),
                 });
                 return Ok(std_response!(TYPE_TEXT, combo));
