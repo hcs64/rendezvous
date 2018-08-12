@@ -9,7 +9,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::iter;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use futures::{future, sync};
 use futures::{Async, Poll};
 use futures_timer::Delay;
@@ -19,8 +19,8 @@ use hyper::rt::{Future, Stream};
 use hyper::service::service_fn;
 use hyper::{Body, Chunk, HeaderMap, Method, Request, Response, Server, StatusCode, Uri};
 
-// TODO: timeout
-const _TIMEOUT_SECS: u64 = 5; //5 * 60;
+const TIMEOUT_SECS: u64 = 60 * 60;
+const TIMEOUT_SCAN_SECS: u64 = 60;
 const RETRY_MS: u64 = 200;
 const MAX_RETRIES: u64 = 9;
 
@@ -160,6 +160,7 @@ impl Payload for Forwarder {
 struct Paste {
     secret: String,
     length: u64,
+    expiration: Instant,
     uploaders: VecDeque<Forwarder>,
 }
 
@@ -347,6 +348,7 @@ fn service_request_id(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
                 entry.insert(Paste {
                     secret,
                     length,
+                    expiration: Instant::now() + Duration::from_secs(TIMEOUT_SECS),
                     uploaders: VecDeque::new(),
                 });
                 return Ok(std_response!(TYPE_TEXT, combo));
@@ -467,10 +469,13 @@ fn service_download(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
     fn download(id: String, mut retries: u64, in_flight: InFlightMap) -> BoxFut {
         match in_flight.lock().unwrap().entry(id.clone()) {
             Entry::Occupied(mut entry) => {
-                match entry.get_mut().uploaders.pop_front() {
+                let paste = entry.get_mut();
+                match paste.uploaders.pop_front() {
                     Some(forwarder) => {
                         if forwarder.uploader.is_some() &&
                             !forwarder.uploader.as_ref().unwrap().1.is_canceled() {
+                                paste.expiration =
+                                    Instant::now() + Duration::from_secs(TIMEOUT_SECS);
                                 return Box::new(future::ok(
                                             Response::builder()
                                             .header(header::CONTENT_TYPE, TYPE_TEXT)
@@ -561,14 +566,39 @@ fn service(in_flight: InFlightMap) -> impl Fn(Request<Body>) -> BoxFut {
     }
 }
 
+fn schedule_timeout(in_flight: InFlightMap) {
+    hyper::rt::spawn(Delay::new(Duration::from_secs(TIMEOUT_SCAN_SECS / 2))
+                     .or_else(|_| future::ok(()))
+                     .and_then(move |_| {
+                         eprintln!("Delay expired!");
+                         process_timeout(&in_flight);
+                         schedule_timeout(in_flight);
+                         future::ok(())
+                     }));
+}
+
+fn process_timeout(in_flight: &InFlightMap) {
+    let now = Instant::now();
+
+    // TODO some way of reporting time left to client
+    in_flight.lock().unwrap().retain(|_, v| v.expiration > now);
+}
+
 fn main() {
     let addr = ([0, 0, 0, 0], 3000).into();
 
     let in_flight = Arc::new(Mutex::new(HashMap::new()));
 
-    let server = Server::bind(&addr)
-        .serve(move || service_fn(service(in_flight.clone())))
+    let server_clone = in_flight.clone();
+    let http_server = Server::bind(&addr)
+        .serve(move || service_fn(service(server_clone.clone())))
         .map_err(|e| eprintln!("server error: {}", e));
+
+    let timeout_clone = in_flight.clone();
+    let timeout_kickoff = future::lazy(move || future::ok(
+        schedule_timeout(timeout_clone.clone())));
+
+    let server = Future::join(http_server, timeout_kickoff).map(|_| ());
 
     hyper::rt::run(server);
 }
