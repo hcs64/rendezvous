@@ -110,7 +110,7 @@ impl Payload for Forwarder {
                 Ok(Async::Ready(None)) => {
                     // TODO hit EOF, this shouldn't happen anymore
                     return Ok(Async::Ready(None));
-                },
+                }
                 Ok(Async::Ready(Some(chunk))) => {
                     self.bytes_sent += chunk.len() as u64;
 
@@ -127,8 +127,8 @@ impl Payload for Forwarder {
                         // fall through to handle_last_chunk below
                         last_chunk = chunk;
                     }
-                },
-                x => return x
+                }
+                x => return x,
             }
         } else {
             // fused
@@ -190,7 +190,10 @@ fn service_favicon() -> BoxFutRes {
 }
 
 fn service_js() -> BoxFutRes {
-    Ok(std_response!("application/javascript; charset=utf-8", CLIENT_JS))
+    Ok(std_response!(
+        "application/javascript; charset=utf-8",
+        CLIENT_JS
+    ))
 }
 
 fn generate_id_pair() -> (String, String) {
@@ -211,9 +214,11 @@ fn query_id(uri: &Uri, only: bool) -> Result<String, BoxFut> {
             match k.as_ref() {
                 "id" => id = Some(v.into_owned()),
                 _ if only => {
-                    return Err(status_response!(StatusCode::BAD_REQUEST,
-                                                TYPE_HTML,
-                                                "<b>Supported arguments id \"id\"</b>"));
+                    return Err(status_response!(
+                        StatusCode::BAD_REQUEST,
+                        TYPE_HTML,
+                        "<b>Supported arguments id \"id\"</b>"
+                    ));
                 }
                 _ => {}
             }
@@ -221,7 +226,11 @@ fn query_id(uri: &Uri, only: bool) -> Result<String, BoxFut> {
     };
 
     if id.is_none() {
-        return Err(status_response!(StatusCode::BAD_REQUEST, TYPE_HTML, "<b>Id missing</b>"));
+        return Err(status_response!(
+            StatusCode::BAD_REQUEST,
+            TYPE_HTML,
+            "<b>Id missing</b>"
+        ));
     }
 
     Ok(id.unwrap())
@@ -237,20 +246,34 @@ fn query_id_and_secret(uri: &Uri, only: bool) -> Result<(String, String), BoxFut
                 "id" => id = Some(v.into_owned()),
                 "secret" => secret = Some(v.into_owned()),
                 _ if only => {
-                    return Err(status_response!(StatusCode::BAD_REQUEST,
-                                                TYPE_TEXT,
-                                                "Supported arguments are \"id\" and \"secret\""));
+                    return Err(status_response!(
+                        StatusCode::BAD_REQUEST,
+                        TYPE_TEXT,
+                        "Supported arguments are \"id\" and \"secret\""
+                    ));
                 }
                 _ => {}
             }
         }
     };
 
-    let id = if let Some(t) = id { t } else {
-        return Err(status_response!(StatusCode::BAD_REQUEST, TYPE_TEXT, "Missing id"));
+    let id = if let Some(t) = id {
+        t
+    } else {
+        return Err(status_response!(
+            StatusCode::BAD_REQUEST,
+            TYPE_TEXT,
+            "Missing id"
+        ));
     };
-    let secret = if let Some(s) = secret { s } else {
-        return Err(status_response!(StatusCode::BAD_REQUEST, TYPE_TEXT, "Missing secret"));
+    let secret = if let Some(s) = secret {
+        s
+    } else {
+        return Err(status_response!(
+            StatusCode::BAD_REQUEST,
+            TYPE_TEXT,
+            "Missing secret"
+        ));
     };
 
     Ok((id, secret))
@@ -264,25 +287,41 @@ fn query_length(uri: &Uri, only: bool) -> Result<u64, BoxFut> {
             match k.as_ref() {
                 "length" => length = Some(v),
                 _ if only => {
-                    return Err(status_response!(StatusCode::BAD_REQUEST, TYPE_TEXT,
-                                                "Supported argument is \"length\""));
+                    return Err(status_response!(
+                        StatusCode::BAD_REQUEST,
+                        TYPE_TEXT,
+                        "Supported argument is \"length\""
+                    ));
                 }
                 _ => {}
             }
         }
     }
 
-    let length = if let Some(l) = length { l } else {
-        return Err(status_response!(StatusCode::BAD_REQUEST, TYPE_TEXT,
-                                    "Expected argument \"length\""));
+    let length = if let Some(l) = length {
+        l
+    } else {
+        return Err(status_response!(
+            StatusCode::BAD_REQUEST,
+            TYPE_TEXT,
+            "Expected argument \"length\""
+        ));
     };
-    let length = if let Ok(l) = u64::from_str_radix(&length, 10) { l } else {
-        return Err(status_response!(StatusCode::BAD_REQUEST, TYPE_TEXT,
-                                    "\"length\" should be a decimal integer"));
+    let length = if let Ok(l) = u64::from_str_radix(&length, 10) {
+        l
+    } else {
+        return Err(status_response!(
+            StatusCode::BAD_REQUEST,
+            TYPE_TEXT,
+            "\"length\" should be a decimal integer"
+        ));
     };
     if length > MAX_CONTENT_LENGTH {
-        return Err(status_response!(StatusCode::BAD_REQUEST, TYPE_TEXT,
-                                    "Content is too long"));
+        return Err(status_response!(
+            StatusCode::BAD_REQUEST,
+            TYPE_TEXT,
+            "Content is too long"
+        ));
     }
 
     Ok(length)
@@ -295,7 +334,7 @@ fn service_request_id(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
         let (id, secret) = generate_id_pair();
 
         let combo = id.clone() + "," + &secret;
-        match in_flight .lock().unwrap().entry(id) {
+        match in_flight.lock().unwrap().entry(id) {
             Entry::Occupied(_) => {
                 continue;
             }
@@ -305,7 +344,7 @@ fn service_request_id(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
                     length,
                     uploaders: VecDeque::new(),
                 });
-                return Ok(std_response!(TYPE_TEXT, combo))
+                return Ok(std_response!(TYPE_TEXT, combo));
             }
         }
     }
@@ -318,16 +357,24 @@ fn service_retire_id(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
         Entry::Occupied(mut entry) => {
             {
                 let paste = entry.get_mut();
-            
+
                 if paste.secret != secret {
-                    return Err(status_response!(StatusCode::FORBIDDEN, TYPE_TEXT, "Bad secret"));
+                    return Err(status_response!(
+                        StatusCode::FORBIDDEN,
+                        TYPE_TEXT,
+                        "Bad secret"
+                    ));
                 }
             }
             entry.remove_entry();
             return Ok(std_response!(TYPE_TEXT, "Removed"));
-        },
+        }
         Entry::Vacant(_) => {
-            return Err(status_response!(StatusCode::NOT_FOUND, TYPE_TEXT, "Unknown id"));
+            return Err(status_response!(
+                StatusCode::NOT_FOUND,
+                TYPE_TEXT,
+                "Unknown id"
+            ));
         }
     };
 }
@@ -339,15 +386,19 @@ fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFutRes {
 
     let length = if let Some(length) = body.content_length() {
         if length > MAX_CONTENT_LENGTH {
-            return Err(status_response!(StatusCode::PAYLOAD_TOO_LARGE,
-                                        TYPE_TEXT,
-                                        "Content is too long"));
+            return Err(status_response!(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                TYPE_TEXT,
+                "Content is too long"
+            ));
         }
         length
     } else {
-        return Err(status_response!(StatusCode::LENGTH_REQUIRED,
-                                    TYPE_TEXT,
-                                    "Content-Length must be speicfied"));
+        return Err(status_response!(
+            StatusCode::LENGTH_REQUIRED,
+            TYPE_TEXT,
+            "Content-Length must be speicfied"
+        ));
     };
 
     let (complete, completion) = sync::oneshot::channel();
@@ -356,10 +407,18 @@ fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFutRes {
         Entry::Occupied(mut entry) => {
             let paste = entry.get_mut();
             if paste.secret != secret {
-                return Err(status_response!(StatusCode::FORBIDDEN, TYPE_TEXT, "Bad secret"));
+                return Err(status_response!(
+                    StatusCode::FORBIDDEN,
+                    TYPE_TEXT,
+                    "Bad secret"
+                ));
             }
             if paste.length != length {
-                return Err(status_response!(StatusCode::BAD_REQUEST, TYPE_TEXT, "Wrong length"));
+                return Err(status_response!(
+                    StatusCode::BAD_REQUEST,
+                    TYPE_TEXT,
+                    "Wrong length"
+                ));
             }
 
             // TODO not sure if we really want someone to be able to
@@ -372,7 +431,11 @@ fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFutRes {
             });
         }
         Entry::Vacant(_) => {
-            return Err(status_response!(StatusCode::NOT_FOUND, TYPE_TEXT, "Unknown id"));
+            return Err(status_response!(
+                StatusCode::NOT_FOUND,
+                TYPE_TEXT,
+                "Unknown id"
+            ));
         }
     };
 
@@ -388,7 +451,7 @@ fn service_upload(req: Request<Body>, in_flight: &InFlightMap) -> BoxFutRes {
                         .unwrap(),
                 )
             })
-            .map_err(|_: sync::oneshot::Canceled| unreachable!())
+            .map_err(|_: sync::oneshot::Canceled| unreachable!()),
     ))
 }
 
@@ -403,15 +466,20 @@ fn service_download(uri: &Uri, in_flight: &InFlightMap) -> BoxFutRes {
                     Response::builder()
                         .header(header::CONTENT_TYPE, TYPE_TEXT)
                         .body(Fwd(forwarder))
-                        .unwrap()
+                        .unwrap(),
                 ))),
                 None => Err(status_response!(
-                    StatusCode::SERVICE_UNAVAILABLE, TYPE_HTML, "<b>No uploader available</b>"))
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    TYPE_HTML,
+                    "<b>No uploader available</b>"
+                )),
             }
         }
-        Entry::Vacant(_) => {
-            Err(status_response!(StatusCode::NOT_FOUND, TYPE_HTML, "<b>Unknown id</b>"))
-        }
+        Entry::Vacant(_) => Err(status_response!(
+            StatusCode::NOT_FOUND,
+            TYPE_HTML,
+            "<b>Unknown id</b>"
+        )),
     }
 }
 
